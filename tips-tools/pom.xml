@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.lifetips</groupId>
+        <artifactId>agentic-life-tips</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>tips-tools</artifactId>
+    <name>Tips Tools</name>
+    <description>工具层：Tool 定义、外部 API 客户端、Tavily 搜索</description>
+
+    <dependencies>
+        <!-- 依赖 common 模块获取 VO 和异常定义 -->
+        <dependency>
+            <groupId>com.lifetips</groupId>
+            <artifactId>tips-common</artifactId>
+        </dependency>
+
+        <!-- Spring AI 核心（@Tool 注解等） -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-model</artifactId>
+        </dependency>
+
+        <!-- Spring Context：提供 @Component、@Service、@Autowired -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+        </dependency>
+
+        <!-- Spring WebFlux：WebClient 用于 HTTP 调用 Tavily API -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+</project>

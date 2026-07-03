@@ -1,0 +1,23 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: agentic-life-tips
+
+  # DeepSeek 配置（通过 OpenAI 兼容接口）
+  ai:
+    openai:
+      api-key: ${DEEPSEEK_API_KEY:xxxx}
+      base-url: https://api.deepseek.com
+      chat:
+        options:
+          model: deepseek-v4-flash
+
+# Tavily 搜索 API Key
+tavily:
+  api-key: ${TAVILY_API_KEY:xxxx}
+
+logging:
+  level:
+    com.lifetips: DEBUG

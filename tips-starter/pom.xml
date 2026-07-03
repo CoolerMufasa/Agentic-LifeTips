@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.lifetips</groupId>
+        <artifactId>agentic-life-tips</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>tips-starter</artifactId>
+    <name>Tips Starter</name>
+    <description>启动入口：Spring Boot 主程序、Controller、前端页面</description>
+
+    <dependencies>
+        <!-- 聚合所有业务模块：传递依赖 tips-aiagent → tips-tools → tips-common -->
+        <dependency>
+            <groupId>com.lifetips</groupId>
+            <artifactId>tips-aiagent</artifactId>
+        </dependency>
+
+        <!-- Spring Boot WebFlux：SSE 流式输出需要响应式 Web 支持 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Spring Boot 打包插件：产出可执行 fat JAR -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

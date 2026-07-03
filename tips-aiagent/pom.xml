@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.lifetips</groupId>
+        <artifactId>agentic-life-tips</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>tips-aiagent</artifactId>
+    <name>Tips AI Agent</name>
+    <description>Agent 引擎核心：Planner、Worker、Engine、Memory、Router</description>
+
+    <dependencies>
+        <!-- 依赖 common + tools -->
+        <dependency>
+            <groupId>com.lifetips</groupId>
+            <artifactId>tips-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.lifetips</groupId>
+            <artifactId>tips-tools</artifactId>
+        </dependency>
+
+        <!-- Spring AI Alibaba Agent Framework：v0 暂时只用到它的传递依赖（spring-ai-core 等），
+             v1 将直接使用其中的 Graph 状态机和 Agent 编排能力 -->
+        <dependency>
+            <groupId>com.alibaba.cloud.ai</groupId>
+            <artifactId>spring-ai-alibaba-agent-framework</artifactId>
+        </dependency>
+
+        <!-- OpenAI Starter：DeepSeek API 完全兼容 OpenAI 格式，只需把 base-url 配成 DeepSeek 地址 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+</project>
