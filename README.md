@@ -111,7 +111,7 @@ spring:
       base-url: https://api.deepseek.com
       chat:
         options:
-          model: deepseek-v4-pro
+          model: deepseek-v4-flash
 
 tavily:
   api-key: ${TAVILY_API_KEY}         # 你的 Tavily API Key
@@ -154,14 +154,24 @@ Agentic-LifeTips/
 
 ---
 
-## 📋 版本路线
+## 📋 当前状态（v0）
 
-| 版本 | 核心能力 | 状态 |
-|------|---------|------|
-| v0 | 单模型 ReAct + 多 Tool 协作 + SSE 流式输出 | ✅ 已完成 |
-| v1 | Node/Edge 结构化路由 + RAG 知识库检索 + 记忆压缩 | 规划中 |
-| v2 | 前端体验优化 + Docker Compose 部署 + 数据持久化 | 规划中 |
-| v3 | 子领域 Agent 拆分 + 用户偏好学习 + 知识库规模扩充 | 规划中 |
+### 已解决的问题
+
+- ✅ 基于 ReAct 循环的 Agent 自主决策链路（Planner → Worker → 结果回流）
+- ✅ LLM 自动选择 Tool 并组合使用（搜索 + 格式化输出）
+- ✅ SSE 流式推送，前端实时展示 Agent 思考过程
+- ✅ 闲聊与知识问题自动分流（IntentRouter），避免 Token 浪费
+- ✅ Spring AI + DeepSeek + Tavily 三方集成
+
+### 已知局限
+
+- ⚠️ 多轮对话后上下文线性膨胀，Token 消耗急剧增加
+- ⚠️ 控制流使用 `while + switch-case` 硬编码，新增 Action 类型需改 Engine 源码
+- ⚠️ Planner 只能表达"下一步做什么"，无法表达"有几种可能性"
+- ⚠️ 推理过程对用户黑盒——只看到最终答案，看不到中间排查
+- ⚠️ 搜索结果存在 SEO 噪音，缺乏结构化知识库作为锚点
+- ⚠️ 会话记忆仅在内存，服务重启后丢失
 
 ---
 
