@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
@@ -23,15 +24,17 @@ import java.util.Map;
 @Service
 public class WorkerService {
 
-    private final ChatClient deepseekChatClient;
+    private final ChatClient workerChatClient;
     private final Map<String, ToolCallback> toolRegistry = new HashMap<>();
 
     /**
      * 构造时 Spring 自动注入所有 implements IAgentTool 的 Bean，
      * 遍历提取 @Tool 方法为 ToolCallback 并注册到 toolRegistry。
      */
-    public WorkerService(ChatClient deepseekChatClient, List<IAgentTool> allAgentTools) {
-        this.deepseekChatClient = deepseekChatClient;
+    public WorkerService(
+            @Qualifier("workerChatClient") ChatClient workerChatClient,
+            List<IAgentTool> allAgentTools) {
+        this.workerChatClient = workerChatClient;
 
         for (IAgentTool toolBean : allAgentTools) {
             ToolCallback[] callbacks = ToolCallbacks.from(toolBean);
@@ -56,7 +59,7 @@ public class WorkerService {
         String toolListDesc = buildToolListDescription();
 
         try {
-            String result = deepseekChatClient.prompt()
+            String result = workerChatClient.prompt()
                     .system(SystemPrompt.WORKER_SYSTEM_PROMPT + toolListDesc)
                     .user("请执行以下任务：\n" + plan.getPlanDetail())
                     .toolCallbacks(toolRegistry.values().toArray(new ToolCallback[0]))

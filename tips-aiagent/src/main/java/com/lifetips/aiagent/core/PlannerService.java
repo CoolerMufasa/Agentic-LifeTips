@@ -4,23 +4,29 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifetips.aiagent.config.SystemPrompt;
 import com.lifetips.common.vo.PlanDetailVO;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 /**
- * 规划服务。调用 DeepSeek 拆解任务，返回 PlanDetailVO 驱动 AgentEngine 的下一步决策。
+ * 规划服务。调用 DeepSeek v4-pro 拆解任务，返回 PlanDetailVO 驱动 AgentEngine 的下一步决策。
  *
  * @author PCRao
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class PlannerService {
 
-    private final ChatClient deepseekChatClient;
+    private final ChatClient plannerChatClient;
     private final ObjectMapper objectMapper;
+
+    public PlannerService(
+            @Qualifier("plannerChatClient") ChatClient plannerChatClient,
+            ObjectMapper objectMapper) {
+        this.plannerChatClient = plannerChatClient;
+        this.objectMapper = objectMapper;
+    }
 
     public PlanDetailVO plan(String userInput, String historyContext) {
         log.info("[Planner] 开始规划, input={}", truncate(userInput, 100));
@@ -28,7 +34,7 @@ public class PlannerService {
         String userMessage = buildUserMessage(userInput, historyContext);
 
         try {
-            String rawContent = deepseekChatClient.prompt()
+            String rawContent = plannerChatClient.prompt()
                     .system(SystemPrompt.PLANNER_SYSTEM_PROMPT)
                     .user(userMessage)
                     .call()

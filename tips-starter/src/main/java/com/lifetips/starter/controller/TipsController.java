@@ -3,9 +3,9 @@ package com.lifetips.starter.controller;
 import com.lifetips.aiagent.core.AgentEngine;
 import com.lifetips.aiagent.router.IntentRouter;
 import com.lifetips.common.enums.IntentType;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,12 +27,18 @@ import java.util.UUID;
 @Slf4j
 @RestController
 @RequestMapping("/api")
-@RequiredArgsConstructor
 public class TipsController {
 
     private final IntentRouter router;
     private final AgentEngine engine;
-    private final ChatClient deepseekChatClient;
+    private final ChatClient workerChatClient;
+
+    public TipsController(IntentRouter router, AgentEngine engine,
+            @Qualifier("workerChatClient") ChatClient workerChatClient) {
+        this.router = router;
+        this.engine = engine;
+        this.workerChatClient = workerChatClient;
+    }
 
     /**
      * 核心对话接口——SSE 流式输出 Agent 的思考过程。
@@ -63,7 +69,7 @@ public class TipsController {
     // 闲聊：阻塞调用搬到 boundedElastic 线程池
     private Flux<String> handleChat(String message) {
         return Mono.fromCallable(() ->
-                deepseekChatClient.prompt()
+                workerChatClient.prompt()
                         .system("你是一个友好的生活助手，用轻松自然的语气和用户聊天。")
                         .user(message)
                         .call()

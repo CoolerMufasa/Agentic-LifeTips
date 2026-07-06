@@ -5,14 +5,15 @@ spring:
   application:
     name: agentic-life-tips
 
-  # DeepSeek 配置（通过 OpenAI 兼容接口）
+  # DeepSeek 双模型配置（通过 OpenAI 兼容接口）
   ai:
     openai:
       api-key: ${DEEPSEEK_API_KEY:xxxx}
       base-url: https://api.deepseek.com
-      chat:
-        options:
-          model: deepseek-v4-flash
+      planner:
+        model: ${PLANNER_MODEL:deepseek-v4-pro}
+      worker:
+        model: ${WORKER_MODEL:deepseek-v4-flash}
 
 # Tavily 搜索 API Key
 tavily:
