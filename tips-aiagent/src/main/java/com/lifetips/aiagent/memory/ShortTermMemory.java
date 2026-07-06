@@ -1,19 +1,18 @@
 package com.lifetips.aiagent.memory;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
+import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 短期记忆管理。v0 用 ConcurrentHashMap 直接管理消息列表，
- * v1 引入语义压缩 + 持久化时再切换到 Spring AI 的 ChatMemory 抽象。
+ * 短期记忆管理，使用 Spring AI MessageWindowChatMemory，自动窗口管理。
  *
  * @author PCRao
  */
@@ -21,28 +20,27 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class ShortTermMemory {
 
-    // v0 不触发压缩，仅预留阈值
-    private static final int COMPRESS_THRESHOLD = 20;
-    private final Map<String, List<Message>> messageStore = new ConcurrentHashMap<>();
+    // 窗口大小 20 条，超出后自动移除旧消息但保留系统消息
+    private final ChatMemory chatMemory = MessageWindowChatMemory.builder()
+            .maxMessages(20)
+            .build();
 
     /**
      * 保存一轮对话到记忆。
      */
     public void save(String chatId, String userMessage, String agentResponse) {
-        List<Message> messages = messageStore.computeIfAbsent(chatId, k -> new ArrayList<>());
-        messages.add(new UserMessage(userMessage));
-        messages.add(new AssistantMessage(agentResponse));
-
-        log.info("[Memory] 保存对话 chatId={}, 消息数={}", chatId, messages.size());
+        chatMemory.add(chatId, new UserMessage(userMessage));
+        chatMemory.add(chatId, new AssistantMessage(agentResponse));
+        log.info("[Memory] 保存对话 chatId={}", chatId);
     }
 
     /**
-     * 读取会话历史，格式化为"用户说 / Agent 说"的对话记录。
+     * 读取会话历史，格式化为自然语言对话记录。
      */
     public String getHistoryAsText(String chatId) {
-        List<Message> messages = messageStore.get(chatId);
+        List<Message> messages = chatMemory.get(chatId);
 
-        if (messages == null || messages.isEmpty()) {
+        if (CollectionUtils.isEmpty(messages)) {
             return "";
         }
 
@@ -58,12 +56,18 @@ public class ShortTermMemory {
     }
 
     /**
-     * 将本轮 thought 和 conclusion 拼接到 preWorkResult。
-     * v0 用线性拼接，v1 将替换为语义压缩。
+     * 获取原始 Message 列表供 Graph State 使用。
+     */
+    public List<Message> getMessages(String chatId) {
+        List<Message> messages = chatMemory.get(chatId);
+        return messages != null ? messages : List.of();
+    }
+
+    /**
+     * V0 兼容：字符串累加的 preWorkResult，V1 Graph 路径已用 ReasoningVO 替代。
      */
     public String buildPreWorkResult(String existing, String thought, String conclusion) {
         StringBuilder sb = new StringBuilder(existing != null ? existing : "");
-
         if (thought != null && !thought.isBlank()) {
             sb.append("[本轮思考] ").append(thought).append("\n");
         }
