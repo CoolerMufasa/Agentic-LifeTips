@@ -33,6 +33,12 @@
             <artifactId>spring-ai-alibaba-agent-framework</artifactId>
         </dependency>
 
+        <!-- Spring AI Alibaba Graph 核心 -->
+        <dependency>
+            <groupId>com.alibaba.cloud.ai</groupId>
+            <artifactId>spring-ai-alibaba-graph-core</artifactId>
+        </dependency>
+
         <!-- OpenAI Starter：DeepSeek API 完全兼容 OpenAI 格式，只需把 base-url 配成 DeepSeek 地址 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
