@@ -22,12 +22,15 @@ import org.springframework.stereotype.Service;
 public class PlannerService {
 
     private final ChatClient plannerChatClient;
+    private final ChatClient workerChatClient;
     private final ObjectMapper objectMapper;
 
     public PlannerService(
             @Qualifier("plannerChatClient") ChatClient plannerChatClient,
+            @Qualifier("workerChatClient") ChatClient workerChatClient,
             ObjectMapper objectMapper) {
         this.plannerChatClient = plannerChatClient;
+        this.workerChatClient = workerChatClient;
         this.objectMapper = objectMapper;
     }
 
@@ -61,16 +64,8 @@ public class PlannerService {
         log.info("[Planner:evaluate] 开始评估, input={}", truncate(userInput, 100));
 
         try {
-            String rawContent = plannerChatClient.prompt()
-                    .system("""
-                        你是一个问题复杂度评估器。根据用户输入判断应走哪条处理路径。
-                        规则：
-                        - DIRECT：简单明确的问题，可以直接搜索或回答（如"红酒渍怎么洗"）
-                        - DIAGNOSE：复杂、不确定、或需要排查的问题（如"豆腐酸了还能吃吗"）
-
-                        请只返回 JSON，格式：{"stage": "DIRECT", "reason": "简单搜索类问题"}
-                        或：{"stage": "DIAGNOSE", "reason": "需要多假设验证"}
-                        """)
+            String rawContent = workerChatClient.prompt()
+                    .system(SystemPrompt.EVALUATE_SYSTEM_PROMPT)
                     .user(userInput)
                     .call()
                     .content();
@@ -96,27 +91,7 @@ public class PlannerService {
             String userMessage = buildUserMessage(userInput, historyContext);
 
             String rawContent = plannerChatClient.prompt()
-                    .system("""
-                        你是一个诊断推理引擎。根据用户问题生成多条可能的假设（Hypothesis），
-                        每条假设需标注置信度和验证计划。
-
-                        请只返回 JSON，格式：
-                        {
-                          "stage": "VERIFY",
-                          "question": "用户的核心问题",
-                          "hypotheses": [
-                            {"id": "h1", "description": "假设描述", "confidence": 0.8, "status": "PENDING", "verificationBasis": ""},
-                            {"id": "h2", "description": "另一假设", "confidence": 0.5, "status": "PENDING", "verificationBasis": ""}
-                          ],
-                          "verifiedFacts": [],
-                          "nextAction": {
-                            "type": "TOOL_CALL",
-                            "targetHypothesisId": "h1",
-                            "toolName": "tavilySearch",
-                            "query": "搜索关键词"
-                          }
-                        }
-                        """)
+                    .system(SystemPrompt.GENERATE_HYPOTHESES_PROMPT)
                     .user(userMessage)
                     .call()
                     .content();
@@ -141,18 +116,7 @@ public class PlannerService {
             String reasoningJson = objectMapper.writeValueAsString(reasoning);
 
             String rawContent = plannerChatClient.prompt()
-                    .system("""
-                        你是一个推理状态更新器。根据最新的验证结果，更新每条假设的状态。
-                        状态：PENDING（待验证）→ VERIFYING（验证中）→ CONFIRMED（确认）/ RULED_OUT（排除）
-
-                        更新规则：
-                        1. 当前标记为 VERIFYING 的假设，根据验证结果更新为 CONFIRMED 或 RULED_OUT
-                        2. 更新 verifiedFacts 列表，添加新确认的事实
-                        3. 如果还有 PENDING 的假设，将 stage 保持为 VERIFY 并设置 nextAction
-                        4. 如果所有假设都已确认或排除，将 stage 设为 CONCLUDE
-
-                        请只返回更新后的完整 ReasoningVO JSON。
-                        """)
+                    .system(SystemPrompt.UPDATE_REASONING_PROMPT)
                     .user("当前推理状态：\n" + reasoningJson
                             + "\n\n最新验证结果：\n" + workResult)
                     .call()
