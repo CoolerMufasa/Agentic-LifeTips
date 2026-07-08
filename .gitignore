@@ -27,3 +27,6 @@ application-local.properties
 # Temporary files
 *.tmp
 *.bak
+
+# Local documents (not part of the codebase)
+本地文档/

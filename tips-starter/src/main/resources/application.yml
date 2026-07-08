@@ -15,9 +15,18 @@ spring:
       worker:
         model: ${WORKER_MODEL:deepseek-v4-flash}
 
+    # 百炼云 DashScope 知识库
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:xxxx}
+
 # Tavily 搜索 API Key
 tavily:
   api-key: ${TAVILY_API_KEY:xxxx}
+
+# 百炼云知识库
+dashscope:
+  knowledge-base:
+    index-name: ${DASHSCOPE_KB_INDEX:life-tips-knowledge}
 
 logging:
   level:

@@ -1,5 +1,7 @@
 package com.lifetips.aiagent.config;
 
+import com.alibaba.cloud.ai.dashscope.api.DashScopeApi;
+import jakarta.annotation.Resource;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
@@ -32,6 +34,9 @@ public class ChatClientConfig {
 
     @Value("${spring.ai.openai.worker.model}")
     private String workerModel;
+
+    @Resource
+    private DashScopeApi dashScopeApi;
 
     /**
      * Planner ChatClient，连 v4-pro，负责深度推理（生成假设、更新状态）。
