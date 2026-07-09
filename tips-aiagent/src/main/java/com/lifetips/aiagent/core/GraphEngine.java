@@ -138,7 +138,16 @@ public class GraphEngine {
         graph.addNode("worker", node_async(state -> {
             String toolName = state.value("toolName").orElse("").toString();
             String planDetail = state.value("planDetail").orElse("").toString();
+            String userInput = state.value("userInput").orElse("").toString();
             int loopCount = parseInt(state.value("loopCount").orElse("0"));
+
+            // 防御：LLM 可能漏输出 toolName 或 planDetail，兜底处理
+            if (StringUtils.isBlank(toolName)) {
+                toolName = "tavilySearch";
+            }
+            if (StringUtils.isBlank(planDetail)) {
+                planDetail = userInput;
+            }
 
             PlanDetailVO plan = new PlanDetailVO();
             plan.setToolName(toolName);
@@ -339,7 +348,9 @@ public class GraphEngine {
     }
 
     /**
-     * 执行 Agent 推理。
+     * 执行 Agent 推理，流式推送类型化的 SSE 消息。
+     * DIAGNOSE 路径：依次推送 REASONING → HYPOTHESIS_LIST → CONFIRMED/RULED_OUT → CONCLUSION → DISCLAIMER
+     * DIRECT 路径：直接推送最终答案。
      */
     public Flux<String> execute(String userInput, String chatId) {
         return Flux.<String>create(sink -> {
@@ -353,26 +364,119 @@ public class GraphEngine {
                 Optional<OverAllState> result = getCompiledGraph().invoke(input);
 
                 result.ifPresentOrElse(
-                    state -> {
-                        String answer = state.value("finalAnswer")
-                            .orElse("抱歉，未能找到满意答案").toString();
-                        sink.next(answer);
-                        sink.next("[DONE]");
-                        sink.complete();
-                    },
+                    state -> pushStateMessages(state, sink, userInput),
                     () -> {
-                        sink.next("抱歉，系统遇到了意外问题～");
+                        sink.next(toTypedMessage("CONCLUSION", "抱歉，系统遇到了意外问题～"));
                         sink.next("[DONE]");
                         sink.complete();
                     }
                 );
             } catch (Exception e) {
                 log.error("[GraphEngine] 异常终止: {}", e.getMessage(), e);
-                sink.next("抱歉，系统遇到了意外问题，请稍后重试～");
+                sink.next(toTypedMessage("CONCLUSION", "抱歉，系统遇到了意外问题，请稍后重试～"));
                 sink.next("[DONE]");
                 sink.complete();
             }
         }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /** 从 Graph 终态中提取信息，推送类型化消息到 SSE 流 */
+    private void pushStateMessages(OverAllState state,
+            reactor.core.publisher.FluxSink<String> sink, String userInput) {
+        String stage = state.value("stage").orElse("DIRECT").toString();
+
+        if ("DIRECT".equals(stage)) {
+            // DIRECT 路径：简单场景，直接输出答案
+            String answer = state.value("finalAnswer")
+                    .orElse("抱歉，未能找到满意答案").toString();
+            sink.next(toTypedMessage("CONCLUSION", answer));
+            sink.next("[DONE]");
+            sink.complete();
+            return;
+        }
+
+        // DIAGNOSE 路径：解析推理状态，逐步推送进度消息。
+        // 每条消息独立 try-catch，外层兜底确保 [DONE] 一定会发送。
+        try {
+            ReasoningVO reasoning = parseReasoning(state);
+            if (reasoning == null) {
+                String answer = state.value("finalAnswer")
+                        .orElse("抱歉，未能找到满意答案").toString();
+                sink.next(toTypedMessage("CONCLUSION", answer));
+                return;
+            }
+
+            // 消息 1：推理说明
+            sink.next(toTypedMessage("REASONING",
+                    "您描述了" + truncate(userInput, 60) + "，需要从几个方向帮您排查"));
+
+            // 消息 2：假设列表
+            pushHypothesisList(sink, reasoning);
+
+            // 消息 3：逐条假设的验证结果
+            pushHypothesisResults(sink, reasoning);
+
+            // 消息 4：最终结论
+            String finalAnswer = state.value("finalAnswer")
+                    .orElse("抱歉，未能给出确定结论").toString();
+            sink.next(toTypedMessage("CONCLUSION", finalAnswer));
+
+            // 消息 5：免责声明
+            sink.next(toTypedMessage("DISCLAIMER",
+                    "以上建议仅供参考，食品安全如有疑虑请咨询专业人士"));
+
+        } catch (Exception e) {
+            log.error("[GraphEngine] 推送消息异常: {}", e.getMessage(), e);
+            // 确保至少有一条结论消息，不让前端白屏
+            sink.next(toTypedMessage("CONCLUSION", "抱歉，推理过程遇到了意外问题，请稍后重试～"));
+        } finally {
+            sink.next("[DONE]");
+            sink.complete();
+        }
+    }
+
+    /** 推送假设列表（独立 try-catch，失败时不阻塞后续消息） */
+    private void pushHypothesisList(reactor.core.publisher.FluxSink<String> sink,
+            ReasoningVO reasoning) {
+        if (CollectionUtils.isEmpty(reasoning.getHypotheses())) return;
+        try {
+            String hypsJson = objectMapper.writeValueAsString(reasoning.getHypotheses());
+            int count = reasoning.getHypotheses().size();
+            sink.next(toTypedMessage("HYPOTHESIS_LIST",
+                    "整理了 " + count + " 种可能：" + hypsJson));
+        } catch (Exception e) {
+            log.warn("[GraphEngine] 假设列表序列化失败: {}", e.getMessage());
+            sink.next(toTypedMessage("REASONING", "假设列表暂时无法展示，但验证过程如下："));
+        }
+    }
+
+    /** 逐条推送假设的 CONFIRMED / RULED_OUT 结果 */
+    private void pushHypothesisResults(reactor.core.publisher.FluxSink<String> sink,
+            ReasoningVO reasoning) {
+        if (CollectionUtils.isEmpty(reasoning.getHypotheses())) return;
+        for (Hypothesis h : reasoning.getHypotheses()) {
+            try {
+                String desc = h.getDescription();
+                String basis = StringUtils.isNotBlank(h.getVerificationBasis())
+                        ? "（依据：" + h.getVerificationBasis() + "）" : "";
+                if (h.getStatus() == HypothesisStatus.CONFIRMED) {
+                    sink.next(toTypedMessage("CONFIRMED", "确认：" + desc + basis));
+                } else if (h.getStatus() == HypothesisStatus.RULED_OUT) {
+                    sink.next(toTypedMessage("RULED_OUT", "排除：" + desc + basis));
+                }
+            } catch (Exception e) {
+                log.warn("[GraphEngine] 推送假设结果异常, id={}: {}", h.getId(), e.getMessage());
+            }
+        }
+    }
+
+    /** 构建类型化的 SSE 消息 JSON */
+    private String toTypedMessage(String type, String content) {
+        try {
+            return objectMapper.writeValueAsString(Map.of("type", type, "content", content));
+        } catch (JsonProcessingException e) {
+            return "{\"type\":\"" + type + "\",\"content\":\"消息序列化失败\"}";
+        }
     }
 
     private ReasoningVO parseReasoning(OverAllState state) {

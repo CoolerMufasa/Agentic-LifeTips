@@ -1,6 +1,7 @@
 package com.lifetips.starter.controller;
 
 import com.lifetips.aiagent.core.AgentEngine;
+import com.lifetips.aiagent.core.GraphEngine;
 import com.lifetips.aiagent.router.IntentRouter;
 import com.lifetips.common.enums.IntentType;
 import lombok.extern.slf4j.Slf4j;
@@ -20,7 +21,8 @@ import java.time.Duration;
 import java.util.UUID;
 
 /**
- * SSE 流式接口。闲聊直接回复，知识问题进入 AgentEngine。
+ * SSE 流式接口。闲聊直接回复，知识问题进入 GraphEngine（V1）。
+ * V0 引擎保留在 /api/v0/chat 用于对比演示。
  *
  * @author PCRao
  */
@@ -30,18 +32,22 @@ import java.util.UUID;
 public class TipsController {
 
     private final IntentRouter router;
-    private final AgentEngine engine;
+    private final GraphEngine graphEngine;
+    private final AgentEngine agentEngine;
     private final ChatClient workerChatClient;
 
-    public TipsController(IntentRouter router, AgentEngine engine,
+    public TipsController(IntentRouter router,
+            GraphEngine graphEngine,
+            AgentEngine agentEngine,
             @Qualifier("workerChatClient") ChatClient workerChatClient) {
         this.router = router;
-        this.engine = engine;
+        this.graphEngine = graphEngine;
+        this.agentEngine = agentEngine;
         this.workerChatClient = workerChatClient;
     }
 
     /**
-     * 核心对话接口——SSE 流式输出 Agent 的思考过程。
+     * V1 核心对话接口——Graph 引擎，SSE 消息按 type 分类。
      */
     @GetMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> chat(
@@ -59,7 +65,33 @@ public class TipsController {
                 .flatMapMany(intent ->
                     intent == IntentType.CHAT
                         ? handleChat(message)
-                        : engine.execute(message, effectiveChatId)
+                        : graphEngine.execute(message, effectiveChatId)
+                )
+                .map(text -> ServerSentEvent.<String>builder().data(text).build())
+                .mergeWith(Flux.interval(Duration.ofSeconds(30))
+                        .map(i -> ServerSentEvent.<String>builder().comment("heartbeat").build()));
+    }
+
+    /**
+     * V0 对话接口——保留旧版 AgentEngine，用于面试时对比演示 V0 vs V1。
+     */
+    @GetMapping(value = "/v0/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<String>> chatV0(
+            @RequestParam String message,
+            @RequestParam(required = false, defaultValue = "") String chatId
+    ) {
+        String effectiveChatId = chatId.isBlank()
+                ? UUID.randomUUID().toString().substring(0, 8)
+                : chatId;
+
+        log.info("[Controller:V0] 收到请求 chatId={}, message={}",
+                effectiveChatId, truncate(message, 50));
+
+        return router.recognize(message)
+                .flatMapMany(intent ->
+                    intent == IntentType.CHAT
+                        ? handleChat(message)
+                        : agentEngine.execute(message, effectiveChatId)
                 )
                 .map(text -> ServerSentEvent.<String>builder().data(text).build())
                 .mergeWith(Flux.interval(Duration.ofSeconds(30))

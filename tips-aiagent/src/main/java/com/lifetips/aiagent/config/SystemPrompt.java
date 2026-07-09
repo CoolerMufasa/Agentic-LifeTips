@@ -34,7 +34,8 @@ public final class SystemPrompt {
             {
               "thought": "思考过程（所有文字写在同一行，不要换行）",
               "action": "TOOL_CALL 或 FINISH 或 CLARIFY",
-              "planDetail": "任务描述（所有文字写在同一行），action=TOOL_CALL 时必填",
+              "toolName": "工具名称，仅 action=TOOL_CALL 时需要填写。可选值：tavilySearch",
+              "planDetail": "搜索关键词或任务描述，action=TOOL_CALL 时填写",
               "conclusion": "最终回答（所有文字写在同一行），action=FINISH 时必填"
             }
 

@@ -61,6 +61,16 @@
             white-space: pre-wrap;
         }
         .message.agent.thinking { color: #999; font-style: italic; }
+        /* V1 类型化消息样式 */
+        .msg-reasoning { color: #5b7a9e; font-style: italic; padding: 4px 0; }
+        .msg-hypotheses { background: #f0f4ff; border-radius: 8px; padding: 8px 12px; margin: 4px 0; }
+        .msg-hypotheses ul { margin: 4px 0 0 16px; padding: 0; }
+        .msg-hypotheses li { margin: 2px 0; font-size: 0.9em; }
+        .msg-verifying { color: #e67e22; padding: 2px 0; }
+        .msg-confirmed { color: #27ae60; padding: 2px 0; }
+        .msg-ruled-out { color: #95a5a6; text-decoration: line-through; padding: 2px 0; }
+        .msg-conclusion { background: #e8f5e9; border-left: 3px solid #4caf50; border-radius: 4px; padding: 8px 12px; margin: 8px 0; font-weight: 500; }
+        .msg-disclaimer { color: #999; font-size: 0.8em; padding: 4px 0; margin-top: 8px; }
         .input-area {
             padding: 16px 24px;
             border-top: 1px solid #eee;
@@ -169,7 +179,8 @@
             const statusDiv = addMessage('agent', '🤔 思考中...');
             statusDiv.classList.add('thinking');
 
-            let agentMsg = null; // 最终答案气泡
+            let agentMsg = null;   // 最终答案气泡
+            let typedMode = false; // V1 类型化消息模式
 
             try {
                 const url = `/api/chat?message=${encodeURIComponent(message)}&chatId=${chatId}`;
@@ -183,9 +194,28 @@
                         eventSource.close();
                         enableInput();
                         if (!chatId) chatId = 'chat-' + Date.now();
+                        if (typedMode) {
+                            typedMode = false;
+                        }
                         return;
                     }
 
+                    // V1 类型化 JSON 消息
+                    if (data.startsWith('{') && data.includes('"type"')) {
+                        try {
+                            const msg = JSON.parse(data);
+                            if (msg.type) {
+                                if (!typedMode) {
+                                    typedMode = true;
+                                    if (statusDiv) statusDiv.remove();
+                                }
+                                renderTypedMessage(msg);
+                                return;
+                            }
+                        } catch(e) { /* 不是有效 JSON，走纯文本逻辑 */ }
+                    }
+
+                    // V0 纯文本消息（兼容）
                     // 步骤/思考过程 → 更新状态栏
                     if (data.startsWith('[') || data.startsWith('💭') ||
                         data.startsWith('🔍') || data.startsWith('📋')) {
@@ -197,7 +227,7 @@
                     // 最终答案 → 新气泡
                     if (!agentMsg) {
                         agentMsg = addMessage('agent', '');
-                        statusDiv.remove(); // 移除状态栏
+                        statusDiv.remove();
                     }
                     agentMsg.textContent += data + '\n';
                     document.getElementById('messages').scrollTop =
@@ -214,6 +244,65 @@
                 statusDiv.classList.remove('thinking');
                 enableInput();
             }
+        }
+
+        function renderTypedMessage(msg) {
+            const container = document.getElementById('messages');
+            const div = document.createElement('div');
+            div.className = 'message agent';
+
+            switch(msg.type) {
+                case 'REASONING':
+                    div.innerHTML = '<div class="msg-reasoning">🤔 ' + escapeHtml(msg.content) + '</div>';
+                    break;
+                case 'HYPOTHESIS_LIST':
+                    // content 格式："整理了 N 种可能：[{...}, {...}]"
+                    const match = msg.content.match(/^整理了 (\d+) 种可能：(.+)$/);
+                    let html = '<div class="msg-hypotheses">📋 ' + msg.content.split('：[')[0];
+                    if (match) {
+                        try {
+                            const hyps = JSON.parse(match[2]);
+                            html += '：<ul>';
+                            hyps.forEach(h => {
+                                html += '<li>' + escapeHtml(h.description)
+                                    + ' <span style="color:#999;font-size:0.85em">(置信度: '
+                                    + Math.round(h.confidence * 100) + '%)</span></li>';
+                            });
+                            html += '</ul>';
+                        } catch(e) {
+                            html += '</div>';
+                        }
+                    }
+                    html += '</div>';
+                    div.innerHTML = html;
+                    break;
+                case 'VERIFYING':
+                    div.innerHTML = '<div class="msg-verifying">🔍 ' + escapeHtml(msg.content) + '</div>';
+                    break;
+                case 'CONFIRMED':
+                    div.innerHTML = '<div class="msg-confirmed">✅ ' + escapeHtml(msg.content) + '</div>';
+                    break;
+                case 'RULED_OUT':
+                    div.innerHTML = '<div class="msg-ruled-out">❌ ' + escapeHtml(msg.content) + '</div>';
+                    break;
+                case 'CONCLUSION':
+                    div.innerHTML = '<div class="msg-conclusion">📝 ' + escapeHtml(msg.content).replace(/\n/g, '<br>') + '</div>';
+                    break;
+                case 'DISCLAIMER':
+                    div.innerHTML = '<div class="msg-disclaimer">⚠️ ' + escapeHtml(msg.content) + '</div>';
+                    break;
+                default:
+                    div.textContent = msg.content;
+            }
+
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const d = document.createElement('div');
+            d.textContent = text;
+            return d.innerHTML;
         }
 
         function addMessage(role, text) {
