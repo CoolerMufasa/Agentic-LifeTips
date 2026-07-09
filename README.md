@@ -1,6 +1,6 @@
 # 🏠 Agentic-LifeTips
 
-> 基于 Spring AI + DeepSeek 的生活小百科 AI Agent。让 LLM 自主搜索、整理并返回结构化的生活技巧答案。
+> 基于 Spring AI + DeepSeek 的食材保鲜递进推理 AI Agent。V1 升级为 Graph 双路径架构，支持假设驱动的多轮验证推理。
 
 [![Java](https://img.shields.io/badge/Java-21-orange)](https://adoptium.net/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.14-brightgreen)](https://spring.io/projects/spring-boot)
@@ -11,12 +11,21 @@
 
 ## ✨ 特性
 
-- **ReAct 推理循环**：Reason（思考）→ Act（行动）→ Observe（观察）闭环，Agent 自主决策是否需要继续搜索
-- **多工具协作**：网络搜索 + 格式化输出，LLM 自动选择合适工具并组合使用
-- **SSE 流式输出**：实时推送 Agent 每一步的思考过程，前端即时展示
-- **意图识别路由**：闲聊与知识问题自动分流，避免 Token 浪费
-- **多轮对话记忆**：上下文保持 + 对话历史管理
-- **结构化答案**：材料 → 步骤 → 注意事项三段式输出
+### V1（当前版本）
+
+- **Graph 双路径路由**：DIRECT（简单搜索，复用 V0） + DIAGNOSE（假设驱动的递进推理）
+- **假设验证引擎**：食材状态 → 生成多条假设 → 逐条查证 → 汇总结论
+- **百炼云 RAG 知识库**：DashScope 食材保鲜知识库 + Tavily 网络搜索双通道
+- **推理过程可见**：SSE 消息按 REASONING / HYPOTHESIS_LIST / CONFIRMED / RULED_OUT / CONCLUSION 分类推送
+- **双模型策略**：v4-flash 做轻量意图识别和快速执行，v4-pro 做深度推理生成假设
+- **结构化推理状态**：ReasoningVO 替代字符串累加，解决多轮 Token 膨胀
+
+### V0（保留）
+
+- ReAct 推理循环（Reason → Act → Observe）
+- 多工具协作（搜索 + 格式化输出）
+- SSE 流式输出
+- 意图识别路由（闲聊 / 知识问题分流）
 
 ---
 
@@ -26,59 +35,61 @@
 |------|---------|
 | 语言 & 框架 | Java 21 + Spring Boot 3.5 |
 | AI 编排 | Spring AI 1.1.3 + Spring AI Alibaba 1.1.2 |
-| LLM 模型 | DeepSeek v4（OpenAI 兼容接口） |
+| Graph 控制流 | Spring AI Alibaba Graph (StateGraph) |
+| LLM 模型 | DeepSeek v4-pro（推理）/ v4-flash（执行） |
+| 知识库 RAG | 阿里云百炼 DashScope 文档检索 |
 | 搜索 API | [Tavily Search](https://tavily.com) |
 | 流式输出 | Spring WebFlux + SSE |
 | 构建工具 | Maven 多模块 |
 
 ---
 
-## 🏗 架构
+## 🏗 架构（V1）
 
 ```
-┌─────────────────────────────────────────────────┐
-│                   TipsController                │
-│                   (SSE 端点)                     │
-└──────────┬──────────────────────────────────────┘
-           │
-    ┌──────▼──────┐
-    │ IntentRouter │  ← "你好" → 闲聊 / "红酒渍怎么洗" → Agent
-    └──────┬──────┘
-           │
-    ┌──────▼──────────┐
-    │   AgentEngine    │  ← while 循环驱动 ReAct
-    │   (MAX_LOOP=5)   │
-    └──┬───────────┬───┘
-       │           │
-  ┌────▼───┐  ┌───▼──────┐
-  │Planner │  │  Worker  │
-  │Service │  │  Service │
-  │(思考)  │  │ (执行)   │
-  └────────┘  └──┬───────┘
-                 │
-          ┌──────▼──────┐
-          │  Tool 注册表  │
-          │  tavilySearch │
-          │  formatLifeTip│
-          └──────────────┘
+                         ┌─────────────────────────┐
+                         │     TipsController       │
+                         │  /api/chat    (V1 默认)   │
+                         │  /api/v0/chat (V0 保留)   │
+                         └──────────┬──────────────┘
+                                    │
+                             ┌──────▼──────┐
+                             │ IntentRouter │
+                             └──────┬──────┘
+                                    │
+                         ┌──────────▼──────────┐
+                         │    GraphEngine       │
+                         │  StateGraph 双路径    │
+                         │  MAX_DIRECT_LOOP=5   │
+                         │  MAX_DIAGNOSE_LOOP=10│
+                         └─────────┬───────────┘
+                                   │
+                    ┌──────────────┴──────────────┐
+                    ▼                              ▼
+            ┌──────────────┐              ┌──────────────┐
+            │  DIRECT 路径   │              │ DIAGNOSE 路径 │
+            │ (V0 兼容)      │              │ (V1 新增)     │
+            │ planner→worker │              │ evaluate →    │
+            │ →finish        │              │ gen_hypotheses│
+            └──────────────┘              │ →verify→      │
+                                          │ update_reason │
+                                          │ →conclude     │
+                                          └──────────────┘
 ```
 
-### ReAct 循环流程
+### DIAGNOSE 推理流程
 
 ```
-用户输入 → IntentRouter(分流)
-              ↓
-         AgentEngine(while 循环)
-              ↓
-     ┌─── Planner 分析 → 返回 PlanDetailVO
-     │        ↓
-     │   action=TOOL_CALL → Worker 调 Tool 搜索
-     │        ↓
-     │   结果回流 preWorkResult
-     │        ↓
-     └── 下一轮 Planner 判断 → FINISH/CLARIFY/继续
-              ↓
-         SSE 流式推送 → 前端渲染
+用户输入"豆腐有点酸，表面粘，还能吃吗"
+  → evaluate（v4-flash，判断走 DIAGNOSE）
+  → generate_hypotheses（v4-pro，列出 3 种可能）
+  → verify（调 dashScopeRetrieve 查知识库）
+  → update_reasoning（v4-pro，更新假设置信度）
+  → verify（继续验证下一条假设）
+  → update_reasoning
+  → ...（所有假设 CONFIRMED 或 RULED_OUT）
+  → conclude（汇总最终结论 + 免责声明）
+  → SSE 流式推送到前端（按消息类型分类渲染）
 ```
 
 ---
@@ -91,11 +102,12 @@
 - Maven 3.9+
 - DeepSeek API Key
 - Tavily API Key（[免费注册](https://tavily.com)）
+- 阿里云百炼 DashScope API Key（知识库 RAG 功能需要）
 
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/你的用户名/Agentic-LifeTips.git
+git clone https://github.com/CoolerMufasa/Agentic-LifeTips.git
 cd Agentic-LifeTips
 ```
 
@@ -107,14 +119,22 @@ cd Agentic-LifeTips
 spring:
   ai:
     openai:
-      api-key: ${DEEPSEEK_API_KEY}   # 你的 DeepSeek API Key
+      api-key: ${DEEPSEEK_API_KEY}
       base-url: https://api.deepseek.com
-      chat:
-        options:
-          model: deepseek-v4-flash
+      planner:
+        model: deepseek-v4-pro    # 深度推理
+      worker:
+        model: deepseek-v4-flash  # 快速执行
+
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY}  # 百炼云知识库
 
 tavily:
-  api-key: ${TAVILY_API_KEY}         # 你的 Tavily API Key
+  api-key: ${TAVILY_API_KEY}         # 网络搜索
+
+dashscope:
+  knowledge-base:
+    index-name: life-tips-knowledge   # 知识库索引名
 ```
 
 或通过环境变量：
@@ -122,6 +142,7 @@ tavily:
 ```bash
 export DEEPSEEK_API_KEY=sk-xxx
 export TAVILY_API_KEY=tvly-xxx
+export DASHSCOPE_API_KEY=sk-ws-xxx
 ```
 
 ### 3. 构建 & 启动
@@ -144,34 +165,45 @@ mvn spring-boot:run -pl tips-starter
 ```
 Agentic-LifeTips/
 ├── tips-common/        # 数据契约：VO、枚举、注解、异常
-├── tips-tools/         # 工具层：Tool 定义、API 客户端
-├── tips-aiagent/       # 引擎核心：Planner、Worker、Engine、Memory
+├── tips-tools/         # 工具层：Tavily 搜索、DashScope RAG、格式化
+├── tips-aiagent/       # 引擎核心：GraphEngine、Planner、Worker、Memory
 ├── tips-starter/       # 启动入口：Controller、前端页面、配置
-└── docs/               # 设计文档
+└── docs/               # 设计文档、开发进度、练习笔记
 ```
 
 模块依赖：`tips-starter → tips-aiagent → tips-tools → tips-common`
 
 ---
 
-## 📋 当前状态（v0）
+## 📋 版本路线图
 
-### 已解决的问题
+| 版本 | 目标 | 状态 |
+|------|------|------|
+| v0 | 跑通核心链路（ReAct + 多 Tool） | ✅ `v0.1.0` |
+| v1 | Graph 双路径 + RAG 知识库 + 递进推理 | ✅ `v1.0.0` |
+| v2 | 前端体验优化 + Docker Compose 部署 + 性能优化 + 持久化 | ⏳ 计划中 |
+| v3 | 子领域 Agent 拆分 + 用户偏好学习 | ⏳ 计划中 |
 
-- ✅ 基于 ReAct 循环的 Agent 自主决策链路（Planner → Worker → 结果回流）
-- ✅ LLM 自动选择 Tool 并组合使用（搜索 + 格式化输出）
-- ✅ SSE 流式推送，前端实时展示 Agent 思考过程
-- ✅ 闲聊与知识问题自动分流（IntentRouter），避免 Token 浪费
-- ✅ Spring AI + DeepSeek + Tavily 三方集成
+### V1 核心升级
 
-### 已知局限
+| V0 局限 | V1 解决方案 |
+|---------|-----------|
+| 上下文线性膨胀，Token 爆炸 | 结构化 ReasoningVO 替代字符串累加 |
+| 控制流僵硬（while+switch-case） | StateGraph 声明式双路径路由 |
+| 搜索结果 SEO 噪音 | 百炼云知识库作为锚数据 + Tavily 补充 |
+| Planner 只能表达"下一步" | ReasoningVO 支持假设列表 + 置信度 + 逐条验证 |
+| 推理过程黑盒 | SSE 消息按类型分层推送，前端分类渲染 |
+| 会话仅内存 | 接入 Spring AI ChatMemory，为 V2 持久化留口子 |
 
-- ⚠️ 多轮对话后上下文线性膨胀，Token 消耗急剧增加
-- ⚠️ 控制流使用 `while + switch-case` 硬编码，新增 Action 类型需改 Engine 源码
-- ⚠️ Planner 只能表达"下一步做什么"，无法表达"有几种可能性"
-- ⚠️ 推理过程对用户黑盒——只看到最终答案，看不到中间排查
-- ⚠️ 搜索结果存在 SEO 噪音，缺乏结构化知识库作为锚点
-- ⚠️ 会话记忆仅在内存，服务重启后丢失
+---
+
+## 🔖 Git Tags
+
+```bash
+git tag
+# v0.1.0  — V0 收官
+# v1.0.0  — V1 收官
+```
 
 ---
 
