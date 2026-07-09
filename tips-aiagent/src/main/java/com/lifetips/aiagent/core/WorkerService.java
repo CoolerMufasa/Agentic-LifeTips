@@ -5,6 +5,7 @@ import com.lifetips.common.vo.PlanDetailVO;
 import com.lifetips.common.vo.WorkDetailVO;
 import com.lifetips.tools.IAgentTool;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.ToolCallback;
@@ -53,24 +54,28 @@ public class WorkerService {
     }
 
     public WorkDetailVO doWork(PlanDetailVO plan) {
-        log.info("[Worker] 准备执行, planDetail={}", truncate(plan.getPlanDetail(), 100));
-
-        // 将所有可用 Tool 的 description 拼成列表，注入 Worker Prompt
-        String toolListDesc = buildToolListDescription();
+        String toolName = plan.getToolName();
+        String planDetail = plan.getPlanDetail();
+        log.info("[Worker] 准备执行, toolName={}, planDetail={}",
+                StringUtils.isNotBlank(toolName) ? toolName : "auto",
+                truncate(planDetail, 100));
 
         try {
-            String result = workerChatClient.prompt()
-                    .system(SystemPrompt.WORKER_SYSTEM_PROMPT + toolListDesc)
-                    .user("请执行以下任务：\n" + plan.getPlanDetail())
-                    .toolCallbacks(toolRegistry.values().toArray(new ToolCallback[0]))
-                    .call()
-                    .content();
+            String result;
 
-            log.info("[Worker] Tool 执行完成, resultPreview={}", truncate(result, 80));
+            // 快速通道：Planner 已指定工具 → 跳过 LLM 选工具，直接用 ChatClient 调目标 Tool
+            if (StringUtils.isNotBlank(toolName) && toolRegistry.containsKey(toolName)) {
+                result = executeNamedTool(toolName, planDetail);
+            } else {
+                // 兼容通道：未指定工具 → LLM 自主选择（V0 行为）
+                result = executeAutoSelect(planDetail);
+            }
+
+            log.info("[Worker] 执行完成, resultPreview={}", truncate(result, 80));
 
             WorkDetailVO vo = new WorkDetailVO();
             vo.setSuccess(true);
-            vo.setToolName("auto");
+            vo.setToolName(StringUtils.isNotBlank(toolName) ? toolName : "auto");
             vo.setConclusion(result);
             return vo;
 
@@ -78,6 +83,29 @@ public class WorkerService {
             log.error("[Worker] Tool 执行异常: {}", e.getMessage(), e);
             return WorkDetailVO.fail("auto", e.getMessage());
         }
+    }
+
+    /** 快速通道：直接让 LLM 调用指定 Tool，不选工具、不格式化，单次往返 */
+    private String executeNamedTool(String toolName, String query) {
+        ToolCallback targetTool = toolRegistry.get(toolName);
+        return workerChatClient.prompt()
+                .system("你是一个工具调用器。只做一件事：用 " + toolName
+                        + " 工具执行用户的任务，直接返回工具的原始结果。不要思考、不要格式化、不要调用其他工具。")
+                .user(query)
+                .toolCallbacks(targetTool)
+                .call()
+                .content();
+    }
+
+    /** 兼容通道：LLM 自主选择和组合 Tool（V0 行为，较慢） */
+    private String executeAutoSelect(String planDetail) {
+        String toolListDesc = buildToolListDescription();
+        return workerChatClient.prompt()
+                .system(SystemPrompt.WORKER_SYSTEM_PROMPT + toolListDesc)
+                .user("请执行以下任务：\n" + planDetail)
+                .toolCallbacks(toolRegistry.values().toArray(new ToolCallback[0]))
+                .call()
+                .content();
     }
 
     // 拼接所有 Tool 的描述供 LLM 参考

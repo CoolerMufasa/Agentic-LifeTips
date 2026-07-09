@@ -103,20 +103,22 @@ public class GraphEngine {
 
         // ========== evaluate 节点：首轮评估 DIRECT vs DIAGNOSE ==========
         graph.addNode("evaluate", node_async(state -> {
+            long start = System.currentTimeMillis();
             String userInput = state.value("userInput").orElse("").toString();
-            log.info("[Graph:evaluate] input={}", truncate(userInput, 80));
 
             EvaluationResult result = planner.evaluate(userInput);
 
             Map<String, Object> updates = new HashMap<>();
             updates.put("stage", result.getStage().name());
-            log.info("[Graph:evaluate] stage={}", result.getStage());
+            log.info("[Graph:evaluate] stage={}, cost={}ms", result.getStage(),
+                    System.currentTimeMillis() - start);
             return updates;
         }));
 
         // ========== DIRECT 路径节点（复用 V0 逻辑）==========
 
         graph.addNode("planner", node_async(state -> {
+            long start = System.currentTimeMillis();
             String userInput = state.value("userInput").orElse("").toString();
             String messagesStr = state.value("messages").orElse("").toString();
 
@@ -132,10 +134,13 @@ public class GraphEngine {
             if (StringUtils.isNotBlank(plan.getConclusion())) {
                 updates.put("conclusion", plan.getConclusion());
             }
+            log.info("[Graph:planner] action={}, cost={}ms", plan.getAction(),
+                    System.currentTimeMillis() - start);
             return updates;
         }));
 
         graph.addNode("worker", node_async(state -> {
+            long start = System.currentTimeMillis();
             String toolName = state.value("toolName").orElse("").toString();
             String planDetail = state.value("planDetail").orElse("").toString();
             String userInput = state.value("userInput").orElse("").toString();
@@ -158,6 +163,8 @@ public class GraphEngine {
             Map<String, Object> updates = new HashMap<>();
             updates.put("messages", result.getConclusion());
             updates.put("loopCount", loopCount + 1);
+            log.info("[Graph:worker] tool={}, cost={}ms", toolName,
+                    System.currentTimeMillis() - start);
             return updates;
         }));
 
@@ -173,6 +180,7 @@ public class GraphEngine {
         // ========== DIAGNOSE 路径节点 ==========
 
         graph.addNode("generate_hypotheses", node_async(state -> {
+            long start = System.currentTimeMillis();
             String userInput = state.value("userInput").orElse("").toString();
             String messagesStr = state.value("messages").orElse("").toString();
 
@@ -181,10 +189,14 @@ public class GraphEngine {
             Map<String, Object> updates = new HashMap<>();
             updates.put("reasoningJson", toJson(reasoning));
             updates.put("stage", ReasoningStage.VERIFY.name());
+            int hCount = reasoning.getHypotheses() != null ? reasoning.getHypotheses().size() : 0;
+            log.info("[Graph:generate_hypotheses] hypotheses={}, cost={}ms",
+                    hCount, System.currentTimeMillis() - start);
             return updates;
         }));
 
         graph.addNode("verify", node_async(state -> {
+            long start = System.currentTimeMillis();
             ReasoningVO reasoning = parseReasoning(state);
             if (reasoning == null || reasoning.getNextAction() == null) {
                 return Map.of("stage", ReasoningStage.CONCLUDE.name());
@@ -215,10 +227,14 @@ public class GraphEngine {
             updates.put("messages", result.getConclusion());
             updates.put("loopCount", loopCount + 1);
             updates.put("reasoningJson", toJson(reasoning));
+            log.info("[Graph:verify] tool={}, hyp={}, loop={}, cost={}ms",
+                    nextAction.getToolName(), nextAction.getTargetHypothesisId(),
+                    loopCount + 1, System.currentTimeMillis() - start);
             return updates;
         }));
 
         graph.addNode("update_reasoning", node_async(state -> {
+            long start = System.currentTimeMillis();
             ReasoningVO reasoning = parseReasoning(state);
             if (reasoning == null) {
                 return Map.of("stage", ReasoningStage.CONCLUDE.name());
@@ -230,10 +246,13 @@ public class GraphEngine {
             Map<String, Object> updates = new HashMap<>();
             updates.put("reasoningJson", toJson(updated));
             updates.put("stage", updated.getStage().name());
+            log.info("[Graph:update_reasoning] stage={}, cost={}ms", updated.getStage(),
+                    System.currentTimeMillis() - start);
             return updates;
         }));
 
         graph.addNode("conclude", node_async(state -> {
+            long start = System.currentTimeMillis();
             ReasoningVO reasoning = parseReasoning(state);
             String userInput = state.value("userInput").orElse("").toString();
             String chatId = state.value("chatId").orElse("default").toString();
@@ -265,6 +284,7 @@ public class GraphEngine {
             }
 
             memory.save(chatId, userInput, sb.toString());
+            log.info("[Graph:conclude] cost={}ms", System.currentTimeMillis() - start);
             return Map.of("finalAnswer", sb.toString());
         }));
 
